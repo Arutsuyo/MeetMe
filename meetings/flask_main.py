@@ -1,3 +1,4 @@
+# Flask Import
 import flask
 from flask import render_template
 from flask import request
@@ -8,20 +9,17 @@ import json
 import logging
 
 # Date handling 
-import arrow # Replacement for datetime, based on moment.js
-# import datetime # But we still need time
-from dateutil import tz  # For interpreting local times
+import arrow
+from dateutil import tz
 
-
+# Google API for services 
+from apiclient import discovery
 # OAuth2  - Google library implementation for convenience
 from oauth2client import client
 import httplib2   # used in oauth2 flow
 
-# Google API for services 
-from apiclient import discovery
-
-# Custom helper calls
-#from helper import 
+# Mongo database
+from pymongo import MongoClient
 
 ###
 # Globals
@@ -119,27 +117,15 @@ def getevents():
     bt = flask.session['begin_time']
     ed = flask.session['end_date']
     et = flask.session['end_time']
-    print("bd: " + str(bd))
-    print("bt: " + str(bt))
-    print("ed: " + str(ed))
-    print("et: " + str(et))
     startb = arrow.get(bd + " " + bt, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     starte = arrow.get(ed + " " + bt, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     endb = arrow.get(bd + " " + et, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     ende = arrow.get(ed + " " + et, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
-    print("startb: " + str(startb))
-    print("starte: " + str(starte))
-    print("endb: " + str(endb))
-    print("ende: " + str(ende))
-    print("starte: " + str(endb))
-    print("ende: " + str(ende))
     startRange = []
     endRange = []
     for s in arrow.Arrow.range('day', startb, starte):
-        print("Time range: " + str(s))
         startRange.append(s)
     for e in arrow.Arrow.range('day', endb, ende):
-        print("Time range: " + str(e))
         endRange.append(e)
 
     if len(startRange) != len(endRange):
@@ -163,18 +149,127 @@ def getevents():
     # End i in range(len(startRange)):
     
     eventList = just_events(cal_events)
-
     freelist = build_free_list(cal_events, startRange, endRange)
-    print("freelist:")
-    print(freelist)
+    
     # Finally add events to session
     flask.session['events'] = eventList
     flask.session['EventLength'] = len(eventList)
     flask.session['freebusy'] = freelist
-
     flask.flash("getevents gave us '{}' events".format(len(cal_events)))
     return flask.redirect(flask.url_for("index"))
 # End getevents()
+
+
+#############################
+#
+# MongoDB Functions
+#
+#############################
+
+MONGO_CLIENT_URL = "mongodb://{}:{}@{}:{}/{}".format(CONFIG.DB_USER,
+    CONFIG.DB_USER_PW,
+    CONFIG.DB_HOST, 
+    CONFIG.DB_PORT, 
+    CONFIG.DB)
+
+####
+# Database connection per server process
+###
+try: 
+    dbclient = MongoClient(MONGO_CLIENT_URL)
+    db = getattr(dbclient, str(CONFIG.DB))
+    collection = getattr(db, CONFIG.DB_COLLECTION)
+
+except:
+    print("Failure opening database.  Is Mongo running? Correct password?")
+    sys.exit(1)
+
+def get_memos():
+    """
+    Returns all memos in the database, in a form that
+    can be inserted directly in the 'session' object.
+    """
+    records = []
+    for record in collection.find({ "type": "dated_memo" }):
+        record['date'] = arrow.get(record['date']).isoformat()
+        record['visDate'] = humanize_arrow_date(record['date'])
+        del record['_id']
+        records.append(record)
+    records.sort(key=lambda i: arrow.get(i['date']))
+    return records 
+
+def get_insert_index():
+    """
+    Finding next index funciton, thanks to Sam Champer
+    for the function. Theory from Me
+    """
+    index = 0
+    for record in collection.find():
+        if record["index"] > index:
+            index = record["index"]
+    index+=1
+    return index
+
+def new_memo(input, date):
+    record = { "type": "dated_memo", 
+           "date":  date,
+           "text": input,
+           "index": get_insert_index()
+          }
+    collection.insert(record)
+
+def del_memo(input):
+    for record in collection.find({'index' : input}):
+        res = collection.delete_one(record)
+        return res.deleted_count
+    return 0
+
+######### Mongo Routing Functions #########
+
+# Get current memo state
+@app.route("/_getmemos")
+def getmemos():
+    allMemos = get_memos()
+    result = {"memos" : allMemos}
+    return flask.jsonify(result=result)
+
+# Interface for creating memos
+@app.route("/_create")
+def create():
+     """
+     Get the arguments and create an entry from input
+     """
+     newMemo = request.args.get('newMemo', type=str)
+     memoDate = request.args.get('inputDate', type=str)
+     new_memo(newMemo, memoDate)
+     app.logger.debug("inserted")
+     result = {"status" : True}
+     return flask.jsonify(result=result)
+
+ # Interface for deleting memos
+@app.route("/_delete")
+def delete():
+     """
+     Get the arguments and create an entry from input
+     """
+     memoIndex = request.args.get('memoIndex', type=int)
+     res = del_memo(memoIndex)
+     app.logger.debug("deleted")
+     result = {"deleted" : res}
+     return flask.jsonify(result=result)
+
+#############################
+#
+# End of MongoDB Functions
+#
+#############################
+
+
+#############################
+#
+# Google Services Functions
+#
+#############################
 
 @app.route('/oauth2callback')
 def oauth2callback():
@@ -190,72 +285,18 @@ def oauth2callback():
       CLIENT_SECRET_FILE,
       scope= SCOPES,
       redirect_uri=flask.url_for('oauth2callback', _external=True))
-  ## Note we are *not* redirecting above.  We are noting *where*
-  ## we will redirect to, which is this function. 
-  
-  ## The *second* time we enter here, it's a callback 
-  ## with 'code' set in the URL parameter.  If we don't
-  ## see that, it must be the first time through, so we
-  ## need to do step 1. 
   app.logger.debug("Got flow")
   if 'code' not in flask.request.args:
     app.logger.debug("Code not in flask.request.args")
     auth_uri = flow.step1_get_authorize_url()
     return flask.redirect(auth_uri)
-    ## This will redirect back here, but the second time through
-    ## we'll have the 'code' parameter set
   else:
-    ## It's the second time through ... we can tell because
-    ## we got the 'code' argument in the URL.
     app.logger.debug("Code was in flask.request.args")
     auth_code = flask.request.args.get('code')
     credentials = flow.step2_exchange(auth_code)
     flask.session['credentials'] = credentials.to_json()
-    ## Now I can build the service and execute the query,
-    ## but for the moment I'll just log it and go back to
-    ## the main screen
     app.logger.debug("Got credentials")
     return flask.redirect(flask.url_for('choose'))
-
-#####
-#
-#  Option setting:  Buttons or forms that add some
-#     information into session state.  Don't do the
-#     computation here; use of the information might
-#     depend on what other information we have.
-#   Setting an option sends us back to the main display
-#      page, where we may put the new information to use. 
-#
-#####
-
-####
-# Google OAuth Functions (Very much clutter)
-####
-#  Google calendar authorization:
-#      Returns us to the main /choose screen after inserting
-#      the calendar_service object in the session state.  May
-#      redirect to OAuth server first, and may take multiple
-#      trips through the oauth2 callback function.
-#
-#  Protocol for use ON EACH REQUEST: 
-#     First, check for valid credentials
-#     If we don't have valid credentials
-#         Get credentials (jump to the oauth2 protocol)
-#         (redirects back to /choose, this time with credentials)
-#     If we do have valid credentials
-#         Get the service object
-#
-#  The final result of successful authorization is a 'service'
-#  object.  We use a 'service' object to actually retrieve data
-#  from the Google services. Service objects are NOT serializable ---
-#  we can't stash one in a cookie.  Instead, on each request we
-#  get a fresh Service object from our credentials, which are
-#  serializable. 
-#
-#  Note that after authorization we always redirect to /choose;
-#  If this is unsatisfactory, we'll need a session variable to use
-#  as a 'continuation' or 'return address' to use instead. 
-####
 
 def valid_credentials():
     """
@@ -275,7 +316,6 @@ def valid_credentials():
       return None
     return credentials
 
-
 def get_gcal_service(credentials):
   """
   We need a Google calendar 'service' object to obtain
@@ -293,12 +333,6 @@ def get_gcal_service(credentials):
   return service
 
 #### END OF GOOGLE HELPER FUNCTIONS ####
-
-####
-#
-#   Initialize session variables 
-#
-####
 
 def init_session_values():
     """
@@ -324,9 +358,7 @@ def init_session_values():
     flask.session["end_time"] = nextweek.ceil('day').format("HH:mm")
 
 ####
-#
 #  Functions (NOT pages) that return some information
-#
 ####
   
 def list_calendars(service):
@@ -379,10 +411,15 @@ def cal_sort_key( cal ):
        primary_key = "X"
     return (primary_key, selected_key, cal["summary"])
 
+#############################
+#
+# End of Google Services Functions
+#
+#############################
 
 #################
 #
-# Functions used within the templates
+# Functions used within the Jinja templates
 #
 #################
 

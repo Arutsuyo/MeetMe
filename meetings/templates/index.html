@@ -8,16 +8,9 @@
 
 	<link rel="stylesheet" type="text/css"
 		  href="/static/css/busy.css" />
-	<!-- jquery from a content distribution network; probably cached -->
 	<script type="text/javascript"
 			src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js">
 	</script>
-	<!-- Ideally the rest of our javascript dependencies would be
-		 bundled and minified with 'browserify', but I've found that
-		 it difficult to handle browserify dependencies for class
-		 projects.  So, we'll pick up moment and a date range picker
-		 from CDNs instead.
-	-->
 	<script type="text/javascript" src="//cdn.jsdelivr.net/momentjs/latest/moment.min.js"></script>
 	<script type="text/javascript" src="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.js"></script>
 	<link rel="stylesheet" type="text/css" href="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.css" />
@@ -26,11 +19,6 @@
 <body>
 	<div class="container">
 		<h1>Busy times</h1>
-		<!--
-		  -- If there are any warnings or other messages from a prior action,
-		  -- they appear above the rest of the content, just until the next
-		  -- action.
-		  -->
 		{% with messages = get_flashed_messages() %}
 			{% if messages %}
 			<ul class=flashes>
@@ -59,12 +47,11 @@
 		</form>
 
 		<!-- Show the calendar list (if we have it) -->
-
 		{% if g.calendars is defined  %}
 		<h3>Calander Select</h3>
 		<form action="/getevents" method="post">
 			<div class="row">
-				{% for cal in g.calendars if cal.selected %}
+				{% for cal in g.calendars %}
 				<div class="col-md-1"><input id="checkBox" name="{{cal.id}}" type="checkbox"></div>
 				<div class="col-md-3">
 					{{ cal.summary }}
@@ -122,6 +109,73 @@
 				</div>
 			{% endfor %}
 		{% endif %}
-	</div>  <!-- container (for bootstrap) -->
+	</div>
+	<script type="text/javascript">
+
+		var SCRIPT_ROOT = {{ request.script_root|tojson | safe }} ;
+		var GET_MEMOS_URL = SCRIPT_ROOT + "/_getmemos";
+		var CREATE_MEMO_URL = SCRIPT_ROOT + "/_create";
+		var DELETE_MEMO_URL = SCRIPT_ROOT + "/_delete";
+
+		var rowNum = 0;
+
+		function createRow(memo) {
+			var row = document.getElementById('init_row').cloneNode(true); // create row node
+			var id = "memo_row" + rowNum++;
+			row.id = id;
+			row.removeAttribute("hidden");
+			var table = document.getElementById("memotable").getElementsByTagName('tbody')[0]; // find table to append to
+			table.appendChild(row); // append row to table
+			$('output[name="date"]', "#" + id).val(memo.visDate);
+			$('output[name="memo"]', "#" + id).val("\t" + memo.text);
+			$('output[name="index"]', "#" + id).val(memo.index);
+		}
+
+		function makeMemoTable() {
+			$.getJSON(GET_MEMOS_URL, {},
+				// response handler
+				function (data) {
+					var memos = data.result.memos;
+					console.log(memos);
+					for (var i = 0; i < memos.length; i++) {
+						createRow(memos[i]);
+					}
+
+					// Make delete buttons do things
+					$('.delete').click(function () {
+						var td = $(this).parent();
+						var tr = td.parent();
+						var index = tr.find("output[name='index']").val();
+						console.log("Del index: " + index);
+						$.getJSON(DELETE_MEMO_URL, { memoIndex: index },
+							// Delete handler
+							function (data) {
+								console.log("Deleted: " + data.result.deleted);
+							} // end of Delete function
+						);// End of getJSON
+						tr.remove();
+					});
+				} // end of handler function
+			);// End of getJSON
+		}
+
+		$(document).ready(function () {
+			// Create Memo Table
+			makeMemoTable();
+
+			$('.submit').click(function () {
+				var newText = $('input[name="InputField"]').val();
+				var inputDate = $("#input_date").val() + " " + $("#input_time").val();
+				$.getJSON(CREATE_MEMO_URL, { newMemo: newText, inputDate: inputDate },
+					function (data) {
+						console.log("status: " + data.result.status);
+						makeMemoTable();
+					}
+				);
+			});
+		});   // end of what we do on document ready
+
+	</script>
 </body>
-</html>
+
+</html >
