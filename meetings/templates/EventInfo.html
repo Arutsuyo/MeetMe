@@ -1,0 +1,75 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html lang="en">
+<head>
+	<title>Created</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" type="text/css"
+		  href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css" />
+	<script type="text/javascript"
+			src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js">
+	</script>
+</head>
+<body>
+	<h1>
+		MeetMe!
+	</h1>
+	<br />
+	<br />
+	<output type="text" name="event_name">{{ session.event_name }}</output>
+	<h3>Date range for the event:</h3>
+	<output type=date name="begin_date" id="begin_date">{{ session.begin_date | fmtdate }}</output>
+	<output type=time name="begin_time" id="begin_time">{{ session.begin_time }}</output>
+	<br />
+	<br />
+	<output type=date name="end_date" id="end_date">{{ session.end_date | fmtdate }}</output>
+	<output type=time name="end_time" id="end_time">{{ session.end_time }}</output>
+	<br />
+	{% if session.Event_Times|length > 0 %}
+	<h3>Event Time Blocks</h3>
+	{% for block in session.Event_Times %}
+	<h4>{{ block.Day }}</h4>
+	<div class="row">
+		{% for FreeBlock in block.times %}
+		<div class="col-xs-2 col-md-1">
+			<p>
+				{{ FreeBlock.S }}
+				<br />
+				{{ FreeBlock.E }}
+			</p>
+		</div>
+		{% if loop.index is divisibleby 12 %}
+	</div> <div class="row">
+		{% endif %}
+		{% endfor %}
+	</div>
+	{% endfor %}
+	<p hidden id="Event_Times_Check">Yes</p>
+	{% else %}
+	<p hidden id="Event_Times_Check">No</p>
+	<h3 id="calculating_msg">Calculating Event Times...</h3>
+	{% endif %}
+	<script>
+		var SCRIPT_ROOT = {{ request.script_root|tojson | safe }} ;
+		var CALCTIMES_JSON = SCRIPT_ROOT + "/_calcEventTimes";
+		var EVENTINFO_URL = SCRIPT_ROOT + "/EventInfo";
+		
+		$(document).ready(function () {
+			if ($('#Event_Times_Check').text() == "No")
+			{
+				$.getJSON(CALCTIMES_JSON, {},
+					function (data) {
+						if (data.result.status) {
+							window.location.assign(EVENTINFO_URL);
+						}
+						else {
+							$('#calculating_msg').val(data.result.msg)
+						}
+					}// End Return
+				);// End JSON
+			}
+			
+		}); // End Document Ready
+
+	</script>
+</body>
+</html>

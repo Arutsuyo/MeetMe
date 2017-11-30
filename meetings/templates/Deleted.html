@@ -1,0 +1,102 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html lang="en">
+<head>
+	<title>Created</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" type="text/css"
+		  href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css" />
+	<script type="text/javascript"
+			src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js">
+	</script>
+</head>
+<body>
+	<h1>
+		MeetMe!
+	</h1>
+	<br />
+	<br />
+	<div class="Event_Details">
+		<h3>
+			Event Name:
+		</h3>
+		<output type="text" name="event_name">{{ session.event_name }}</output>
+		<h3>Date range for the event:</h3>
+		<output type=date name="begin_date" id="begin_date">{{ session.begin_date | fmtdate }}</output>
+		<output type=time name="begin_time" id="begin_time">{{ session.begin_time}}</output>
+		<br />
+		<br />
+		<output type=date name="end_date" id="end_date">{{ session.end_date | fmtdate }}</output>
+		<output type=time name="end_time" id="end_time">{{ session.end_time}}</output>
+		<br />
+		<button class="finalize" id="finalize">Finalize Event</button>
+		<br />
+		<h3 hidden id="creating">Creating Event, Please Wait....</h3>
+		<br />
+		<br />
+		<h3 hidden id="done">Event Created!</h3>
+		<h3 hidden id="exists">Event already exists, please change some information</h3>
+		<output id="event_token_msg" hidden>Event Token: </output>
+		<output id="event_token" hidden></output>
+	</div>
+	<script>
+		var SCRIPT_ROOT = {{ request.script_root|tojson | safe }} ;
+		var FINALIZE_URL = SCRIPT_ROOT + "/_finalize";
+
+		String.prototype.hashCode = function () {
+			var hash = 0, i, chr;
+			if (this.length === 0) return hash;
+			for (i = 0; i < this.length; i++) {
+				chr = this.charCodeAt(i);
+				hash = ((hash << 5) - hash) + chr;
+				hash |= 0; // Convert to 32bit integer
+			}
+			return hash;
+		};
+
+		$(document).ready(function () {
+			$('.finalize').click(function () {
+				document.getElementById("finalize").disabled = true;
+				document.getElementById("creating").hidden = false;
+
+				var event_name = "{{ session.event_name }}";
+				var begin_date = "{{ session.begin_date }}";
+				var begin_time = "{{ session.begin_time }}";
+				var end_date = "{{ session.end_date }}";
+				var end_time = "{{ session.end_time }}";
+
+				var hash = event_name + begin_date + begin_time + end_date + end_time;
+				hash = hash.hashCode();
+				console.log("hash for event: " + hash);
+
+				$.getJSON(FINALIZE_URL, {
+					event_name: event_name,
+					begin_date: begin_date,
+					begin_time: begin_time,
+					end_date: end_date,
+					end_time: end_time,
+					hash: hash
+				},
+					function (data) {
+						console.log("status: " + data.result.status);
+
+						if (data.result.status)
+						{
+							document.getElementById("creating").hidden = true;
+							document.getElementById("event_token_msg").hidden = false;
+							document.getElementById("event_token").innerHTML = hash
+							document.getElementById("event_token").hidden = false;
+							document.getElementById("done").hidden = false;
+						}
+						else
+						{
+							document.getElementById("creating").hidden = true;
+							document.getElementById("exists").hidden = false;
+						}
+					}// End Return
+				);// End JSON
+			});// End .sumbit
+		}); // End Document Ready
+
+	</script>
+</body>
+</html>

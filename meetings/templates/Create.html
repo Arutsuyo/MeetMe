@@ -1,0 +1,58 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html lang="en">
+<head>
+	<title>Create</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" type="text/css"
+		  href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css" />
+	<script type="text/javascript"
+			src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js">
+	</script>
+</head>
+<body>
+	<h1>
+		MeetMe!
+	</h1>
+	<br />
+	<br />
+	<form action="/_setrange" method="post">
+		<h3>
+			Event Name:
+		</h3>
+		<input type="text" name="event_name" placeholder="Event Name" />
+		<h3>
+			Date range for the event:
+		</h3>
+		{% if session.begin_date is defined %}
+		<input type=date name="begin_date" id="begin_date"
+			   value={{ session.begin_date }} />
+		<input type=time name="begin_time" id="begin_time"
+			   value={{ session.begin_time }} />
+		<input type=date name="end_date" id="end_date"
+			   value={{ session.end_date }} />
+		<input type=time name="end_time" id="end_time"
+			   value={{ session.end_time }} />
+		{% else %}
+		<input type=date name="begin_date" id="begin_date"
+			   value="2017-01-01" />
+		<input type=time name="begin_time" id="begin_time"
+			   value="00:00" />
+		<input type=date name="end_date" id="end_date"
+			   value="2017-01-01" />
+		<input type=time name="end_time" id="end_time"
+			   value="00:00" />
+		{% endif %}
+		<br />
+		<input type="submit" value="Choose" />
+	</form>
+	<br />
+	<br />
+	<form action="/_delete" method="post">
+		<h2>Delete Event?</h2>
+		<input type="text" name="delete_hash" placeholder="Event Hash" />
+		<br />
+		<input type="submit" value="Delete" />
+	</form>
+</body>
+
+</html>
