@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html lang="en">
+<head>
+	<title>Appointments</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" type="text/css"
+		  href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css" />
+
+	<link rel="stylesheet" type="text/css"
+		  href="/static/css/busy.css" />
+	<script type="text/javascript"
+			src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js">
+	</script>
+	<script type="text/javascript"
+			src="//cdn.jsdelivr.net/momentjs/latest/moment.min.js"></script>
+	<script type="text/javascript"
+			src="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.js">
+	</script>
+	<link rel="stylesheet" type="text/css"
+		  href="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.css" />
+</head>
+<body>
+	<h3 id="Event_Info">Event Info</h3>
+	<output type="text" name="event_name">{{ session.event_name }}</output>
+	<output type="text" id="event_hash">{{ session.event_hash }}</output>
+	<h5>Date range for the event:</h5>
+	<output type=date name="begin_date">{{ session.begin_date | fmtdate }}</output>
+	<output type=time name="begin_time">{{ session.begin_time}}</output>
+	<br />
+	<output type=date name="end_date">{{ session.end_date | fmtdate }}</output>
+	<output type=time name="end_time">{{ session.end_time}}</output>
+	<br />
+	<br />
+	<div class="container">
+		<!-- Show the calendar list (if we have it) -->
+		{% if session.calendars is defined  %}
+		<h3>Calander Select</h3>
+		<form action="/_getevents" method="post">
+			<div class="row">
+				{% for cal in session.calendars %}
+				<div class="col-md-1"><input id="checkBox" name="{{cal.id}}"
+											 type="checkbox"></div>
+				<div class="col-md-3">{{ cal.summary }}</div>
+				{% if loop.index is divisibleby 3 %}
+			</div> <div class="row">
+				{% endif %}
+				{% endfor %}
+			</div>
+			<br/><input type="submit" value="Get Events" />
+		</form>
+		{% endif %}
+
+		<!-- Show the event list (if we have it) -->
+		{% if session.events|length > 0 %}
+		<div id="Events_Container">
+			<h3>{{ session.EventLength }} Events</h3>
+			<div class="row">
+				{% for event in session.events %}
+				<div class="col-md-4">
+					<p>
+						Summary: {{ event.name }}
+						<br />
+						Start: {{ event.start | fmtdate }} {{ event.start | fmttime }}
+						<br />
+						End: {{ event.end | fmtdate }} {{ event.end | fmttime }}
+					</p>
+				</div>
+				{% if loop.index is divisibleby 3 %}
+			</div> <div class="row">
+				{% endif %}
+				{% endfor %}
+			</div>
+		</div>
+		{% endif %}
+
+		<!-- Show the FreeBusy list (if we have it) -->
+		{% if session.freebusy|length > 0 %}
+		<h3>Time Blocks</h3>
+			{% for block in session.freebusy %}
+			<h4>{{ block.Day }}</h4>
+				<div class="row">
+					{% for FreeBusy in block.FreeBusy %}
+						<div class="col-xs-2 col-md-1">
+							<p>
+								{{ FreeBusy.FB }}
+								<br />
+								{{ FreeBusy.S }}
+								<br />
+								{{ FreeBusy.E }}
+							</p>
+						</div>
+						{% if loop.index is divisibleby 12 %}
+						</div> <div class="row">
+						{% endif %}
+					{% endfor %}
+				</div>
+			{% endfor %}
+		{% endif %}
+	</div>
+	<br />
+	{% if session.freebusy|length > 0 %}
+	<h3>Submit Events</h3>
+	<p>IMPORTANT! Server will only be saving the dates and Free/Busy displayed
+	information. The server does not save your events titles/Descriptions.</p>
+	<button class="SendEvents" onclick="sendFreeBusy()">Submit Free/Busy</button>
+	<h5 hidden id="Submitting_Header">Submitting Events...</h5>
+	<br />
+	<br />
+	<br />
+	<script type="text/javascript">
+
+		var SCRIPT_ROOT = {{ request.script_root|tojson | safe }} ;
+		var SUBMIT_EVENTS_JSON = SCRIPT_ROOT + "/_submitEvents";
+		var EVENTINFO_URL = SCRIPT_ROOT + "/EventInfo";
+
+		function sendFreeBusy() {
+			$(".SendEvents").attr('disabled', 'true');
+			$("#Submitting_Header").removeAttr('hidden');
+
+			var event_hash = $('#event_hash').val();
+
+			$.getJSON(SUBMIT_EVENTS_JSON, { event_hash : event_hash},
+				function (data) {
+					console.log("status: " + data.result);
+
+					if (data.result) {
+						window.location.assign(EVENTINFO_URL);
+					}
+					else {
+						$("#Submitting_Header").val("Failed to submit events");
+					}
+				}// End Return
+			);// End JSON
+		}
+	</script>
+	{% endif %}
+</body>
+
+</html >

@@ -1,27 +1,23 @@
+# Flask Import
 import flask
-from flask import render_template
-from flask import request
-from flask import url_for
+from flask import g, render_template, request, url_for
 import uuid
 
 import json
 import logging
 
 # Date handling 
-import arrow # Replacement for datetime, based on moment.js
-# import datetime # But we still need time
-from dateutil import tz  # For interpreting local times
+import arrow
+from dateutil import tz
 
-
+# Google API for services 
+from apiclient import discovery
 # OAuth2  - Google library implementation for convenience
 from oauth2client import client
 import httplib2   # used in oauth2 flow
 
-# Google API for services 
-from apiclient import discovery
-
-# Custom helper calls
-#from helper import 
+# Mongo database Manager
+from mongoManager import *
 
 ###
 # Globals
@@ -35,7 +31,12 @@ else:
 ###
 # Import Event processing funcitons
 ###
-from eventProcessing import process_events, just_events, build_free_list, dumpObject
+from eventProcessing import process_events, just_events
+from eventProcessing import build_free_list, dumpObject
+
+def dprint(*args, **kwargs):
+    if DEBUG:
+        print("DB::", *args, **kwargs)
 
 app = flask.Flask(__name__)
 app.debug=CONFIG.DEBUG
@@ -45,6 +46,16 @@ app.secret_key=CONFIG.SECRET_KEY
 SCOPES = 'https://www.googleapis.com/auth/calendar.readonly'
 CLIENT_SECRET_FILE = CONFIG.GOOGLE_KEY_FILE  ## You'll need this
 APPLICATION_NAME = 'MeetMe class project'
+
+####
+# Initialize Mongo
+###
+MONGO_CLIENT_URL = "mongodb://{}:{}@{}:{}/{}".format(CONFIG.DB_USER,
+    CONFIG.DB_USER_PW,
+    CONFIG.DB_HOST, 
+    CONFIG.DB_PORT, 
+    CONFIG.DB)
+MM = MongoDBManager(MONGO_CLIENT_URL, str(CONFIG.DB), CONFIG.DB_COLLECTION)
 
 #############################
 #
@@ -56,36 +67,136 @@ APPLICATION_NAME = 'MeetMe class project'
 @app.route("/index")
 def index():
   app.logger.debug("Entering index")
-  if 'begin_date' not in flask.session:
-    init_session_values()
-  return render_template('index.html')
+  return render_template('Index.html')
 
-@app.route('/setrange', methods=['POST'])
+@app.route("/Create")
+def Create():
+    app.logger.debug("Entering Create")
+    flask.session.clear()
+    init_session_values()
+    return render_template('Create.html')
+
+@app.route('/_setrange', methods=['POST'])
 def setrange():
     """
     User chose a date range with the bootstrap daterange
     widget.
     """
-    app.logger.debug("Entering setrange")  
+    app.logger.debug("Entering setrange")
     form = request.form.to_dict()
-    print("Form:")
-    print(form)
-
-    flask.flash("Setrange gave us '{} {} - {} {}'".format(
-      form['begin_date'], form['begin_time'], form['end_date'], form['end_time']))
-    flask.session['begin_date'] = form['begin_date']
-    flask.session['end_date'] = form['end_date']
-    flask.session['begin_time'] = form['begin_time']
-    flask.session['end_time'] = form['end_time']
+    dprint("Form:")
+    dprint(form)
     
-    return flask.redirect(flask.url_for("choose"))
+    flask.session["event_name"] = form['event_name']
+    flask.session["begin_date"] = form['begin_date']
+    flask.session["end_date"] = form['end_date']
+    flask.session["begin_time"] = form['begin_time']
+    flask.session["end_time"] = form['end_time']
+    
+    return flask.redirect(flask.url_for("Created"))
 
-@app.route("/choose")
-def choose():
+@app.route("/Created")
+def Created():
+  app.logger.debug("Entering Created")
+  return render_template('Created.html')
+
+
+@app.route("/_finalize")
+def finalize_event():
+    """
+    Get the arguments and create an Event Entry
+    """
+    event_name = request.args.get('event_name', type=str)
+    begin_date = request.args.get('begin_date', type=str)
+    begin_time = request.args.get('begin_time', type=str)
+    end_date = request.args.get('end_date', type=str)
+    end_time = request.args.get('end_time', type=str)
+    event_hash = request.args.get('event_hash', type=str)
+
+    dprint("Finalize:Event Has recieved: " + str(event_hash))
+
+    ret = MM.makeNewEvent(event_name, begin_date, begin_time, end_date, end_time, event_hash)
+    result = {"status" : False,
+              "event_hash": event_hash}
+    if ret:
+        app.logger.debug("Event Created")
+        result["status"] = True
+    else:
+        app.logger.debug("ERROR: Event Creation Failed!!!")
+    return flask.jsonify(result=result)
+
+@app.route("/_delete", methods=['POST'])
+def delete_event():
+    """
+    Get the arguments and delete an Event Entry
+    """
+    app.logger.debug("Entering delete")  
+    form = request.form.to_dict()
+    dprint("Form:")
+    dprint(form)
+    
+    hash = form['delete_hash']
+
+    ret = MM.deleteEvent(hash)
+    flask.session["deleted"] = True
+    return flask.redirect(flask.url_for("Created"))
+
+
+@app.route("/_token")
+def assignToken():
+    dprint("Testing JSON new page")
+    event_hash = request.args.get('event_hash', type=str)
+    dprint("Do we have hash? " + event_hash)
+    flask.session.clear()
+    flask.session["event_hash"] = event_hash
+    return flask.jsonify(result=True)
+
+@app.route("/Token")
+def join_hash():
+    app.logger.debug("Displaying token page")
+    return render_template('Token.html')
+
+@app.route("/View")
+def veiw_hash():
+    app.logger.debug("Displaying view page")
+    return render_template('View.html')
+
+@app.route("/_getToken")
+def getEventDetails():
+    hash = request.args.get('event_hash', type=str)
+    app.logger.debug("Checking database for: " + hash)
+
+    details = MM.getEventDetails(hash)
+    dprint("Recieved: " + str(details))
+    if 'event_name' in details:
+        flask.session.clear()
+        details["status"] = True
+        flask.session["event_name"] = details["event_name"]
+        flask.session["begin_date"] = details["begin_date"]
+        flask.session["begin_time"] = details["begin_time"]
+        flask.session["end_date"]   = details["end_date"]
+        flask.session["end_time"]   = details["end_time"]
+        flask.session["event_hash"] = details["event_hash"]
+
+    return flask.jsonify(result=details)
+
+
+@app.route("/GetEvents")
+def GetEvents():
+    app.logger.debug("Entering GetEvents")
+    if 'event_hash' not in flask.session:
+        return flask.redirect(flask.url_for("Token"))
+    return render_template('GetEvents.html')
+
+
+@app.route("/join")
+def join():
     ## We'll need authorization to list calendars 
     ## I wanted to put what follows into a function, but had
     ## to pull it back here because the redirect has to be a
-    ## 'return' 
+    ## 'return'
+    
+    event_hash = flask.session["event_hash"]
     app.logger.debug("Checking credentials for Google calendar access")
     credentials = valid_credentials()
     if not credentials:
@@ -94,15 +205,16 @@ def choose():
 
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
-    flask.g.calendars = list_calendars(gcal_service)
-    return render_template('index.html')
+    flask.session["calendars"] = list_calendars(gcal_service)
+    return render_template('GetEvents.html')
 
-@app.route("/getevents", methods=['POST'])
-def getevents():
+
+@app.route("/_getevents", methods=['POST'])
+def get_events():
     """
     User chose calanders and we return the events
     """
-    print("Entering getevents")  
+    dprint("Entering getevents")  
     app.logger.debug("Checking credentials for Google calendar access")
     credentials = valid_credentials()
     if not credentials:
@@ -119,27 +231,17 @@ def getevents():
     bt = flask.session['begin_time']
     ed = flask.session['end_date']
     et = flask.session['end_time']
-    print("bd: " + str(bd))
-    print("bt: " + str(bt))
-    print("ed: " + str(ed))
-    print("et: " + str(et))
     startb = arrow.get(bd + " " + bt, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     starte = arrow.get(ed + " " + bt, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
-    endb = arrow.get(bd + " " + et, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
-    ende = arrow.get(ed + " " + et, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
-    print("startb: " + str(startb))
-    print("starte: " + str(starte))
-    print("endb: " + str(endb))
-    print("ende: " + str(ende))
-    print("starte: " + str(endb))
-    print("ende: " + str(ende))
+    endb = arrow.get(bd + " " + et,
+                     "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
+    ende = arrow.get(ed + " " + et,
+                     "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     startRange = []
     endRange = []
     for s in arrow.Arrow.range('day', startb, starte):
-        print("Time range: " + str(s))
         startRange.append(s)
     for e in arrow.Arrow.range('day', endb, ende):
-        print("Time range: " + str(e))
         endRange.append(e)
 
     if len(startRange) != len(endRange):
@@ -163,18 +265,84 @@ def getevents():
     # End i in range(len(startRange)):
     
     eventList = just_events(cal_events)
-
     freelist = build_free_list(cal_events, startRange, endRange)
-    print("freelist:")
-    print(freelist)
+    
     # Finally add events to session
     flask.session['events'] = eventList
     flask.session['EventLength'] = len(eventList)
     flask.session['freebusy'] = freelist
-
     flask.flash("getevents gave us '{}' events".format(len(cal_events)))
-    return flask.redirect(flask.url_for("index"))
+    return render_template('GetEvents.html')
 # End getevents()
+
+@app.route("/_submitEvents")
+def submitEvents():
+    """
+    Submitting Events to the database
+    """
+    app.logger.debug("Submitting Freebusy to database")
+    event_hash = request.args.get('event_hash', type=str)
+    
+    if event_hash != flask.session['event_hash']:
+        return flask.jsonify(result=False)
+    event_name = flask.session["event_name"]
+    
+    MM.submitFreeBusy(flask.session['freebusy'], event_hash)
+    
+    # Save Good Varibales
+    bd = flask.session['begin_date']
+    bt = flask.session['begin_time']
+    ed = flask.session['end_date']
+    et = flask.session['end_time']
+    creds = flask.session["credentials"]
+    app.logger.debug("Clearing session clutter")
+    flask.session.clear()
+    flask.session['begin_date'] = bd
+    flask.session['begin_time'] = bt
+    flask.session['end_date'] = ed
+    flask.session['end_time'] = et
+    flask.session["event_name"] = event_name
+    flask.session['event_hash'] = event_hash
+    flask.session["credentials"] = creds
+
+    return flask.jsonify(result=True)
+
+@app.route("/_calcEventTimes")
+def calcTimes():
+    app.logger.debug("Entering _calcEventTimes")
+    if 'event_hash' not in flask.session:
+        result = {"status":False,
+            "msg": "No Event info! Please go back to index and click create, join, or view"}
+        return flask.jsonify(result=result)
+    if 'begin_date' not in flask.session:
+        details = MM.getEventDetails(flask.session['event_hash'])
+        flask.session["event_name"] = details["event_name"]
+        flask.session["begin_date"] = details["begin_date"]
+        flask.session["begin_time"] = details["begin_time"]
+        flask.session["end_date"]   = details["end_date"]
+        flask.session["end_time"]   = details["end_time"]
+
+    flask.session["Event_Times"] = MM.calculate_event_times(flask.session['event_hash'])
+    dprint("Calculated Available Event Times")
+    dprint(flask.session["Event_Times"])
+    result = {"status":True}
+    if len(flask.session["Event_Times"]) == 0:
+        result = {"status":False,
+                  "msg": "No Times Found"}
+    else:
+        flask.session["Event_Times"] = flask.session["Event_Times"][0]
+    return flask.jsonify(result=result)
+
+@app.route("/EventInfo")
+def eventInfo():
+    app.logger.debug("Entering EventInfo")
+    return render_template('EventInfo.html')
+
+#############################
+#
+# Google Services Functions
+#
+#############################
 
 @app.route('/oauth2callback')
 def oauth2callback():
@@ -190,72 +358,18 @@ def oauth2callback():
       CLIENT_SECRET_FILE,
       scope= SCOPES,
       redirect_uri=flask.url_for('oauth2callback', _external=True))
-  ## Note we are *not* redirecting above.  We are noting *where*
-  ## we will redirect to, which is this function. 
-  
-  ## The *second* time we enter here, it's a callback 
-  ## with 'code' set in the URL parameter.  If we don't
-  ## see that, it must be the first time through, so we
-  ## need to do step 1. 
   app.logger.debug("Got flow")
   if 'code' not in flask.request.args:
     app.logger.debug("Code not in flask.request.args")
     auth_uri = flow.step1_get_authorize_url()
     return flask.redirect(auth_uri)
-    ## This will redirect back here, but the second time through
-    ## we'll have the 'code' parameter set
   else:
-    ## It's the second time through ... we can tell because
-    ## we got the 'code' argument in the URL.
     app.logger.debug("Code was in flask.request.args")
     auth_code = flask.request.args.get('code')
     credentials = flow.step2_exchange(auth_code)
     flask.session['credentials'] = credentials.to_json()
-    ## Now I can build the service and execute the query,
-    ## but for the moment I'll just log it and go back to
-    ## the main screen
     app.logger.debug("Got credentials")
-    return flask.redirect(flask.url_for('choose'))
-
-#####
-#
-#  Option setting:  Buttons or forms that add some
-#     information into session state.  Don't do the
-#     computation here; use of the information might
-#     depend on what other information we have.
-#   Setting an option sends us back to the main display
-#      page, where we may put the new information to use. 
-#
-#####
-
-####
-# Google OAuth Functions (Very much clutter)
-####
-#  Google calendar authorization:
-#      Returns us to the main /choose screen after inserting
-#      the calendar_service object in the session state.  May
-#      redirect to OAuth server first, and may take multiple
-#      trips through the oauth2 callback function.
-#
-#  Protocol for use ON EACH REQUEST: 
-#     First, check for valid credentials
-#     If we don't have valid credentials
-#         Get credentials (jump to the oauth2 protocol)
-#         (redirects back to /choose, this time with credentials)
-#     If we do have valid credentials
-#         Get the service object
-#
-#  The final result of successful authorization is a 'service'
-#  object.  We use a 'service' object to actually retrieve data
-#  from the Google services. Service objects are NOT serializable ---
-#  we can't stash one in a cookie.  Instead, on each request we
-#  get a fresh Service object from our credentials, which are
-#  serializable. 
-#
-#  Note that after authorization we always redirect to /choose;
-#  If this is unsatisfactory, we'll need a session variable to use
-#  as a 'continuation' or 'return address' to use instead. 
-####
+    return flask.redirect(flask.url_for('join'))
 
 def valid_credentials():
     """
@@ -269,12 +383,10 @@ def valid_credentials():
 
     credentials = client.OAuth2Credentials.from_json(
         flask.session['credentials'])
-
-    if (credentials.invalid or
-        credentials.access_token_expired):
+    
+    if credentials.invalid:
       return None
     return credentials
-
 
 def get_gcal_service(credentials):
   """
@@ -295,9 +407,7 @@ def get_gcal_service(credentials):
 #### END OF GOOGLE HELPER FUNCTIONS ####
 
 ####
-#
-#   Initialize session variables 
-#
+#  Functions (NOT pages) that return some information
 ####
 
 def init_session_values():
@@ -309,12 +419,12 @@ def init_session_values():
     now = arrow.now('local')     # We really should be using tz from browser
     tomorrow = now.replace(days=+1)
     nextweek = now.replace(days=+7)
-    print("Arrow Floor:")
-    print(tomorrow.floor('day').isoformat())
-    print("Arrow Ceil:")
-    print(nextweek.ceil('day').isoformat())
-    print("Input")
-    print("{} - {}".format(
+    dprint("Arrow Floor:")
+    dprint(tomorrow.floor('day').isoformat())
+    dprint("Arrow Ceil:")
+    dprint(nextweek.ceil('day').isoformat())
+    dprint("Input")
+    dprint("{} - {}".format(
         tomorrow.format("MM/DD/YYYY H:MM"),
         nextweek.format("MM/DD/YYYY H:MM")))
     flask.session["begin_date"] = tomorrow.floor('day').format("YYYY-MM-DD")
@@ -323,11 +433,21 @@ def init_session_values():
     flask.session["begin_time"] = tomorrow.floor('day').format("HH:mm")
     flask.session["end_time"] = nextweek.ceil('day').format("HH:mm")
 
-####
-#
-#  Functions (NOT pages) that return some information
-#
-####
+def cal_sort_key( cal ):
+    """
+    Sort key for the list of calendars:  primary calendar first,
+    then other selected calendars, then unselected calendars.
+    (" " sorts before "X", and tuples are compared piecewise)
+    """
+    if cal["selected"]:
+       selected_key = " "
+    else:
+       selected_key = "X"
+    if cal["primary"]:
+       primary_key = " "
+    else:
+       primary_key = "X"
+    return (primary_key, selected_key, cal["summary"])
   
 def list_calendars(service):
     """
@@ -352,7 +472,6 @@ def list_calendars(service):
         selected = ("selected" in cal) and cal["selected"]
         primary = ("primary" in cal) and cal["primary"]
         
-
         result.append(
           { "kind": kind,
             "id": id,
@@ -362,27 +481,9 @@ def list_calendars(service):
             })
     return sorted(result, key=cal_sort_key)
 
-
-def cal_sort_key( cal ):
-    """
-    Sort key for the list of calendars:  primary calendar first,
-    then other selected calendars, then unselected calendars.
-    (" " sorts before "X", and tuples are compared piecewise)
-    """
-    if cal["selected"]:
-       selected_key = " "
-    else:
-       selected_key = "X"
-    if cal["primary"]:
-       primary_key = " "
-    else:
-       primary_key = "X"
-    return (primary_key, selected_key, cal["summary"])
-
-
 #################
 #
-# Functions used within the templates
+# Functions used within the Jinja templates
 #
 #################
 
@@ -400,6 +501,7 @@ def format_arrow_time( time ):
         normal = arrow.get( time )
         return normal.format("HH:mm")
     except:
+        print("ServerError::Time: " + str(time))
         return "(bad time)"
 
 

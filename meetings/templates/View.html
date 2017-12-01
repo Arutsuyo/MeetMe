@@ -1,0 +1,116 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html lang="en">
+<head>
+	<title>Create</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" type="text/css"
+		  href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css" />
+	<script type="text/javascript"
+			src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js">
+	</script>
+</head>
+<body>
+	<h1>
+		MeetMe!
+	</h1>
+	<br />
+	<br />
+	<!--Event Finder-->
+	<h3>Enter your MeetMe Event Token:</h3>
+	<input type="text" name="event_hash" placeholder="Event hash" />
+	<button class="check_info" id="check_info">Get Details</button>
+	<br />
+	<!--Event Details-->
+	<h3 hidden id="getting_info">Retrieving event info</h3>
+	<h3 hidden id="event_fail">Event does not exist</h3>
+	<output type=text id="event_hash"></output>
+	<br />
+	<output type=text id="event_name"></output>
+	<br />
+	<output type=text id="begin_date"></output>
+	<output type=text id="begin_time"></output>
+	<br />
+	<output type=text id="end_date"></output>
+	<output type=text id="end_time"></output>
+	<br />
+	<!--Form Submit-->
+	<button hidden class="view_event" id="view_event">View this Event</button>
+	<br />
+	<script>
+		var SCRIPT_ROOT = {{ request.script_root|tojson | safe }} ;
+		var GET_TOKEN_INFO_JSON = SCRIPT_ROOT + "/_getToken";
+		var VIEW_EVENT_URL = SCRIPT_ROOT + "/EventInfo";
+
+		$(document).ready(function () {
+
+			{% if session.event_hash is defined %}
+			value = "{{ session.event_hash }}";
+			$('input[name="event_hash"]').val(value);
+			{% endif %}
+
+			$('.check_info').click(function () {
+
+				hideDetails();
+				var event_hash = $('input[name="event_hash"]').val();
+				console.log("checking event: " + event_hash);
+
+				$.getJSON(GET_TOKEN_INFO_JSON, { event_hash: event_hash },
+					function (data) {
+						console.log("status: " + data.result.status);
+						
+						if (data.result.status) {
+							console.log("Recieved:")
+							console.log(data.result)
+							showDetails();
+							// Set the returned data
+							$('#event_hash').val(data.result.event_hash);
+							$('#event_name').val(data.result.event_name);
+							$('#begin_date').val(data.result.begin_date);
+							$('#begin_time').val(data.result.begin_time);
+							$('#end_date').val(data.result.end_date);
+							$('#end_time').val(data.result.end_time);
+							document.getElementById("event_fail").hidden = true;
+
+						}
+						else {
+							$('#check_info').removeAttr('disabled');
+							document.getElementById("getting_info").hidden = true;
+							$('#event_fail').removeAttr('hidden');
+						}
+					}// End Return
+				);// End JSON
+			});// End .check_info Button
+
+			$('.view_event').click(function () {
+				window.location.assign(VIEW_EVENT_URL);
+			});// End .check_info Button
+		}); // End Document Ready
+
+		function hideDetails() {
+			document.getElementById("check_info").disabled = true;
+			$('#getting_info').removeAttr('hidden');
+			document.getElementById("event_name").hidden = true;
+			document.getElementById("begin_date").hidden = true;
+			document.getElementById("begin_time").hidden = true;
+			document.getElementById("end_date").hidden = true;
+			document.getElementById("end_time").hidden = true;
+			document.getElementById("view_event").hidden = true;
+		}
+
+		function showDetails() {
+			$('#check_info').removeAttr('disabled');
+			document.getElementById("getting_info").hidden = true;
+			$('#event_hash').removeAttr('hidden');
+			$('#event_name').removeAttr('hidden');
+			$('#begin_date').removeAttr('hidden');
+			$('#begin_time').removeAttr('hidden');
+			$('#end_date').removeAttr('hidden');
+			$('#end_time').removeAttr('hidden');
+			$('#view_event').removeAttr('hidden');
+		}
+
+	</script>
+
+</body>
+
+</html>
