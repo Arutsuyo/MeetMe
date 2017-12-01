@@ -34,12 +34,12 @@
 	<output type=text id="end_time"></output>
 	<br />
 	<!--Form Submit-->
-	<button hidden class="join_event" id="join_event">Join this Event</button>
+	<button hidden class="view_event" id="view_event">View this Event</button>
 	<br />
 	<script>
 		var SCRIPT_ROOT = {{ request.script_root|tojson | safe }} ;
 		var GET_TOKEN_INFO_JSON = SCRIPT_ROOT + "/_getToken";
-		var JOIN_EVENT_URL = SCRIPT_ROOT + "/join";
+		var VIEW_EVENT_URL = SCRIPT_ROOT + "/EventInfo";
 
 		$(document).ready(function () {
 
@@ -57,7 +57,7 @@
 				$.getJSON(GET_TOKEN_INFO_JSON, { event_hash: event_hash },
 					function (data) {
 						console.log("status: " + data.result.status);
-
+						
 						if (data.result.status) {
 							console.log("Recieved:")
 							console.log(data.result)
@@ -81,8 +81,8 @@
 				);// End JSON
 			});// End .check_info Button
 
-			$('.join_event').click(function () {
-				window.location.assign(JOIN_EVENT_URL);
+			$('.view_event').click(function () {
+				window.location.assign(VIEW_EVENT_URL);
 			});// End .check_info Button
 		}); // End Document Ready
 
@@ -94,7 +94,7 @@
 			document.getElementById("begin_time").hidden = true;
 			document.getElementById("end_date").hidden = true;
 			document.getElementById("end_time").hidden = true;
-			document.getElementById("join_event").hidden = true;
+			document.getElementById("view_event").hidden = true;
 		}
 
 		function showDetails() {
@@ -106,7 +106,7 @@
 			$('#begin_time').removeAttr('hidden');
 			$('#end_date').removeAttr('hidden');
 			$('#end_time').removeAttr('hidden');
-			$('#join_event').removeAttr('hidden');
+			$('#view_event').removeAttr('hidden');
 		}
 
 	</script>

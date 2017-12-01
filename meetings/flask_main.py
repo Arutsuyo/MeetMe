@@ -34,6 +34,10 @@ else:
 from eventProcessing import process_events, just_events
 from eventProcessing import build_free_list, dumpObject
 
+def dprint(*args, **kwargs):
+    if DEBUG:
+        print("DB::", *args, **kwargs)
+
 app = flask.Flask(__name__)
 app.debug=CONFIG.DEBUG
 app.logger.setLevel(logging.DEBUG)
@@ -80,8 +84,8 @@ def setrange():
     """
     app.logger.debug("Entering setrange")
     form = request.form.to_dict()
-    print("Form:")
-    print(form)
+    dprint("Form:")
+    dprint(form)
     
     flask.session["event_name"] = form['event_name']
     flask.session["begin_date"] = form['begin_date']
@@ -109,7 +113,7 @@ def finalize_event():
     end_time = request.args.get('end_time', type=str)
     event_hash = request.args.get('event_hash', type=str)
 
-    print("Finalize:Event Has recieved: " + str(event_hash))
+    dprint("Finalize:Event Has recieved: " + str(event_hash))
 
     ret = MM.makeNewEvent(event_name, begin_date, begin_time, end_date, end_time, event_hash)
     result = {"status" : False,
@@ -128,8 +132,8 @@ def delete_event():
     """
     app.logger.debug("Entering delete")  
     form = request.form.to_dict()
-    print("Form:")
-    print(form)
+    dprint("Form:")
+    dprint(form)
     
     hash = form['delete_hash']
 
@@ -140,9 +144,9 @@ def delete_event():
 
 @app.route("/_token")
 def assignToken():
-    print("Testing JSON new page")
+    dprint("Testing JSON new page")
     event_hash = request.args.get('event_hash', type=str)
-    print("Do we have hash? " + event_hash)
+    dprint("Do we have hash? " + event_hash)
     flask.session.clear()
     flask.session["event_hash"] = event_hash
     return flask.jsonify(result=True)
@@ -152,13 +156,18 @@ def join_hash():
     app.logger.debug("Displaying token page")
     return render_template('Token.html')
 
+@app.route("/View")
+def veiw_hash():
+    app.logger.debug("Displaying view page")
+    return render_template('View.html')
+
 @app.route("/_getToken")
 def getEventDetails():
     hash = request.args.get('event_hash', type=str)
     app.logger.debug("Checking database for: " + hash)
 
     details = MM.getEventDetails(hash)
-    print("Recieved: " + str(details))
+    dprint("Recieved: " + str(details))
     if 'event_name' in details:
         flask.session.clear()
         details["status"] = True
@@ -205,7 +214,7 @@ def get_events():
     """
     User chose calanders and we return the events
     """
-    print("Entering getevents")  
+    dprint("Entering getevents")  
     app.logger.debug("Checking credentials for Google calendar access")
     credentials = valid_credentials()
     if not credentials:
@@ -301,13 +310,27 @@ def submitEvents():
 @app.route("/_calcEventTimes")
 def calcTimes():
     app.logger.debug("Entering _calcEventTimes")
+    if 'event_hash' not in flask.session:
+        result = {"status":False,
+            "msg": "No Event info! Please go back to index and click create, join, or view"}
+        return flask.jsonify(result=result)
+    if 'begin_date' not in flask.session:
+        details = MM.getEventDetails(flask.session['event_hash'])
+        flask.session["event_name"] = details["event_name"]
+        flask.session["begin_date"] = details["begin_date"]
+        flask.session["begin_time"] = details["begin_time"]
+        flask.session["end_date"]   = details["end_date"]
+        flask.session["end_time"]   = details["end_time"]
+
     flask.session["Event_Times"] = MM.calculate_event_times(flask.session['event_hash'])
-    print("Calculated Available Event Times")
-    print(flask.session["Event_Times"])
+    dprint("Calculated Available Event Times")
+    dprint(flask.session["Event_Times"])
     result = {"status":True}
     if len(flask.session["Event_Times"]) == 0:
         result = {"status":False,
                   "msg": "No Times Found"}
+    else:
+        flask.session["Event_Times"] = flask.session["Event_Times"][0]
     return flask.jsonify(result=result)
 
 @app.route("/EventInfo")
@@ -396,12 +419,12 @@ def init_session_values():
     now = arrow.now('local')     # We really should be using tz from browser
     tomorrow = now.replace(days=+1)
     nextweek = now.replace(days=+7)
-    print("Arrow Floor:")
-    print(tomorrow.floor('day').isoformat())
-    print("Arrow Ceil:")
-    print(nextweek.ceil('day').isoformat())
-    print("Input")
-    print("{} - {}".format(
+    dprint("Arrow Floor:")
+    dprint(tomorrow.floor('day').isoformat())
+    dprint("Arrow Ceil:")
+    dprint(nextweek.ceil('day').isoformat())
+    dprint("Input")
+    dprint("{} - {}".format(
         tomorrow.format("MM/DD/YYYY H:MM"),
         nextweek.format("MM/DD/YYYY H:MM")))
     flask.session["begin_date"] = tomorrow.floor('day').format("YYYY-MM-DD")

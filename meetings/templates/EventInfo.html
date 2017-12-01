@@ -29,7 +29,7 @@
 	{% for block in session.Event_Times %}
 	<h4>{{ block.Day }}</h4>
 	<div class="row">
-		{% for FreeBlock in block.times %}
+		{% for FreeBlock in block.FreeBusy %}
 		<div class="col-xs-2 col-md-1">
 			<p>
 				{{ FreeBlock.S }}
