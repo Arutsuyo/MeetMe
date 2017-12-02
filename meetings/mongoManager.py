@@ -1,5 +1,5 @@
 ### DEBUG OPTIONS
-DEBUG = True #Turn this False before submission
+DEBUG = False #Turn this False before submission
 ### End Debug
 
 def dprint(output):
@@ -30,7 +30,7 @@ class MongoDBManager:
     def makeNewEvent(self, event_name, begin_date, begin_time,
                      end_date, end_time, event_hash):
         """
-        Insert a new record into the collection for us to use
+        Insert a new Event record into the collection
         """
         record = {"event_name": event_name,
                  "begin_date": begin_date,
@@ -45,11 +45,16 @@ class MongoDBManager:
         return True
     
     def deleteEvent(self, event_hash):
+        """
+        Delete an Event record from the collection
+        """
         delCount = 0
         dprint("Deleting Event")
+        # Delete the event
         res = self.collection.delete_many({'event_hash' : event_hash})
         delCount+=res.deleted_count
         dprint("Deleting User FreeBusy's")
+        # Delete all the users of the event
         res = self.collection.delete_many({'Event_Freebusy_Hash' : event_hash})
         delCount+=res.deleted_count
         dprint("Deleted " + str(delCount) + " records")
@@ -102,10 +107,10 @@ class MongoDBManager:
         self.collection.insert(record)
 
     def calculate_event_times(self, event_hash):
-
         Details = self.getEventDetails(event_hash)
 
         schedules = []
+        # Parse out all the free/busy time submitted by users
         for record in self.collection.find({ "Event_Freebusy_Hash": event_hash }):
             blocks = []
             for day in record["Timeblocks"]:
@@ -129,6 +134,7 @@ class MongoDBManager:
         if totalSchedules == 0:
             return schedules
         
+        # Merge all the event times into one amalgamation
         while totalSchedules > 1:
             sched1 = schedules[0]
             sched2 = schedules[1]
@@ -137,6 +143,7 @@ class MongoDBManager:
             totalSchedules = len(schedules)
         # End For Schedule
 
+        # Flip the busy times to get free times
         schedules[0] = self.flipSchedule(schedules[0],
                                       Details["begin_time"],
                                       Details["end_time"])
@@ -158,6 +165,9 @@ class MongoDBManager:
                     index2 = 0
                     total1 = len(FB1)
                     total2 = len(FB2)
+
+                    # Loop through all the times and merge them, depending on 
+                    # the case. There are 6 possibilities
                     while index1 < total1:
                         while index2 < total2:
 
@@ -246,11 +256,13 @@ class MongoDBManager:
         dprint("Flipping Schedules")
         dprint(schedule)
 
+        # Loop Days
         for day in schedule:
             times = []
             index = 0
             FB = day["FreeBusy"]
 
+            # Cover first time, and prep list
             FBLength = len(FB)
             if FBLength == 0:
                 day["FreeBusy"] = [{"S" : bt, "E" : et}]
@@ -265,6 +277,7 @@ class MongoDBManager:
                 if FBLength == 1 and FB[0]["E"] < et:
                     times.append(et)
 
+            # Do time things for the rest of the loop
             for i in range(1, len(FB)):
                 if et < FB[i]["E"]:
                     times.append(FB[i]["S"])

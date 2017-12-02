@@ -2,6 +2,7 @@
 import flask
 from flask import g, render_template, request, url_for
 import uuid
+import urllib
 
 import json
 import logging
@@ -34,6 +35,10 @@ else:
 from eventProcessing import process_events, just_events
 from eventProcessing import build_free_list, dumpObject
 
+### DEBUG OPTIONS
+DEBUG = False #Turn this False before submission
+### End Debug
+
 def dprint(*args, **kwargs):
     if DEBUG:
         print("DB::", *args, **kwargs)
@@ -58,9 +63,7 @@ MONGO_CLIENT_URL = "mongodb://{}:{}@{}:{}/{}".format(CONFIG.DB_USER,
 MM = MongoDBManager(MONGO_CLIENT_URL, str(CONFIG.DB), CONFIG.DB_COLLECTION)
 
 #############################
-#
 #  Pages (routed from URLs)
-#
 #############################
 
 @app.route("/")
@@ -71,6 +74,9 @@ def index():
 
 @app.route("/Create")
 def Create():
+    """
+    Main event creation page
+    """
     app.logger.debug("Entering Create")
     flask.session.clear()
     init_session_values()
@@ -97,8 +103,11 @@ def setrange():
 
 @app.route("/Created")
 def Created():
-  app.logger.debug("Entering Created")
-  return render_template('Created.html')
+    """
+    Displays the input criteria for the event and asks the user to finalize
+    """
+    app.logger.debug("Entering Created")
+    return render_template('Created.html')
 
 
 @app.route("/_finalize")
@@ -106,6 +115,7 @@ def finalize_event():
     """
     Get the arguments and create an Event Entry
     """
+    # Parse Arguments
     event_name = request.args.get('event_name', type=str)
     begin_date = request.args.get('begin_date', type=str)
     begin_time = request.args.get('begin_time', type=str)
@@ -115,12 +125,22 @@ def finalize_event():
 
     dprint("Finalize:Event Has recieved: " + str(event_hash))
 
+    # Send the event to the MongoManager to create it
     ret = MM.makeNewEvent(event_name, begin_date, begin_time, end_date, end_time, event_hash)
+    # Create the invite link
+    inv = '<a href="mailto:name1@mail.com,name2@mail.com?subject=Your%20invited%20to%20Join%20an%20Event!&amp;body=Please%20visit%20the%20MeetMe!%20website%20and%20enter%20your%20invite%20token%20to%20join%20the%20event.%0AEvent%3A%20'
+    inv += urllib.parse.quote(event_name)
+    inv += '%0AToken%3A%20'
+    inv += urllib.parse.quote(event_hash)
+    inv += '">Invite guests</a>'
+    dprint("Invite link:", inv)
     result = {"status" : False,
-              "event_hash": event_hash}
+              "event_hash": event_hash,
+              "inv" : inv}
     if ret:
         app.logger.debug("Event Created")
         result["status"] = True
+
     else:
         app.logger.debug("ERROR: Event Creation Failed!!!")
     return flask.jsonify(result=result)
@@ -136,7 +156,7 @@ def delete_event():
     dprint(form)
     
     hash = form['delete_hash']
-
+    # Delete the given event and it's users info
     ret = MM.deleteEvent(hash)
     flask.session["deleted"] = True
     return flask.redirect(flask.url_for("Created"))
@@ -144,7 +164,6 @@ def delete_event():
 
 @app.route("/_token")
 def assignToken():
-    dprint("Testing JSON new page")
     event_hash = request.args.get('event_hash', type=str)
     dprint("Do we have hash? " + event_hash)
     flask.session.clear()
@@ -153,11 +172,17 @@ def assignToken():
 
 @app.route("/Token")
 def join_hash():
+    """
+    User inputs Event token for retrieving information
+    """
     app.logger.debug("Displaying token page")
     return render_template('Token.html')
 
 @app.route("/View")
 def veiw_hash():
+    """
+    Allows the user to submit an Event token and skip the gathering of times
+    """
     app.logger.debug("Displaying view page")
     return render_template('View.html')
 
@@ -191,10 +216,6 @@ def GetEvents():
 
 @app.route("/join")
 def join():
-    ## We'll need authorization to list calendars 
-    ## I wanted to put what follows into a function, but had
-    ## to pull it back here because the redirect has to be a
-    ## 'return'
     
     event_hash = flask.session["event_hash"]
     app.logger.debug("Checking credentials for Google calendar access")
@@ -227,10 +248,14 @@ def get_events():
     incre = 0
     form = request.form.to_dict()
     validIDs = [id for id,checked in form.items() if checked == 'on']
+
+    # Get the times / Dates
     bd = flask.session['begin_date']
     bt = flask.session['begin_time']
     ed = flask.session['end_date']
     et = flask.session['end_time']
+
+    # Get the Spans
     startb = arrow.get(bd + " " + bt, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     starte = arrow.get(ed + " " + bt, "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     endb = arrow.get(bd + " " + et,
@@ -239,6 +264,7 @@ def get_events():
                      "YYYY-MM-DD HH:mm").replace(tzinfo='US/Pacific')
     startRange = []
     endRange = []
+    # Pack Time ranges for each day
     for s in arrow.Arrow.range('day', startb, starte):
         startRange.append(s)
     for e in arrow.Arrow.range('day', endb, ende):
@@ -248,6 +274,7 @@ def get_events():
         print("Time Spans dont match, server error")
         raise
     
+    # For each date/time range, ask for each calanders events
     cal_events = []
     for i in range(len(startRange)):
         for id in validIDs:
@@ -259,12 +286,15 @@ def get_events():
             cal_events.append({ 
                 "Start" :   startRange[i],
                 "End"   :   endRange[i],
+                # Process the events and return the list
                 "Events":   process_events( events ) 
                 })
         # End id in validIDs:
     # End i in range(len(startRange)):
     
+    # Strip out the garbage
     eventList = just_events(cal_events)
+    # Parse out a list of just the tiems and Free or Busy
     freelist = build_free_list(cal_events, startRange, endRange)
     
     # Finally add events to session
@@ -287,6 +317,7 @@ def submitEvents():
         return flask.jsonify(result=False)
     event_name = flask.session["event_name"]
     
+    # Submit the Users Free/Busy times to the server
     MM.submitFreeBusy(flask.session['freebusy'], event_hash)
     
     # Save Good Varibales
@@ -296,6 +327,7 @@ def submitEvents():
     et = flask.session['end_time']
     creds = flask.session["credentials"]
     app.logger.debug("Clearing session clutter")
+    # Just keep the nessessary things, we don't need to hold the events anymore
     flask.session.clear()
     flask.session['begin_date'] = bd
     flask.session['begin_time'] = bt
@@ -307,6 +339,19 @@ def submitEvents():
 
     return flask.jsonify(result=True)
 
+@app.route("/_invite")
+def getInvite():
+    # Create the invite link
+    inv = '<a href="mailto:name1@mail.com,name2@mail.com?subject=Your%20invited%20to%20Join%20an%20Event!&amp;body=Please%20visit%20the%20MeetMe!%20website%20and%20enter%20your%20invite%20token%20to%20join%20the%20event.%0AEvent%3A%20'
+    inv += urllib.parse.quote(flask.session["event_name"])
+    inv += '%0AToken%3A%20'
+    inv += urllib.parse.quote(flask.session["event_hash"])
+    inv += '">Invite guests</a>'
+    dprint("Invite link:", inv)
+    res = {"inv" : inv}
+    return flask.jsonify(result=res)
+
+
 @app.route("/_calcEventTimes")
 def calcTimes():
     app.logger.debug("Entering _calcEventTimes")
@@ -315,6 +360,8 @@ def calcTimes():
             "msg": "No Event info! Please go back to index and click create, join, or view"}
         return flask.jsonify(result=result)
     if 'begin_date' not in flask.session:
+        # This is mostly here since view could only have the 
+        # token in session and not the other details
         details = MM.getEventDetails(flask.session['event_hash'])
         flask.session["event_name"] = details["event_name"]
         flask.session["begin_date"] = details["begin_date"]
@@ -322,26 +369,31 @@ def calcTimes():
         flask.session["end_date"]   = details["end_date"]
         flask.session["end_time"]   = details["end_time"]
 
+    # Get the Times that the event can happen from the user times
     flask.session["Event_Times"] = MM.calculate_event_times(flask.session['event_hash'])
     dprint("Calculated Available Event Times")
     dprint(flask.session["Event_Times"])
+    # The thrack the number of users that have submitted
+    flask.session["num_invites"] = MM.get_insert_index(flask.session['event_hash'])
+
+    
     result = {"status":True}
     if len(flask.session["Event_Times"]) == 0:
         result = {"status":False,
-                  "msg": "No Times Found"}
+                "msg": "No Times Found"}
     else:
         flask.session["Event_Times"] = flask.session["Event_Times"][0]
     return flask.jsonify(result=result)
 
 @app.route("/EventInfo")
 def eventInfo():
+    # When this loadds it will callback to /_calcEventTimes
+    
     app.logger.debug("Entering EventInfo")
     return render_template('EventInfo.html')
 
 #############################
-#
 # Google Services Functions
-#
 #############################
 
 @app.route('/oauth2callback')
@@ -482,9 +534,7 @@ def list_calendars(service):
     return sorted(result, key=cal_sort_key)
 
 #################
-#
 # Functions used within the Jinja templates
-#
 #################
 
 @app.template_filter( 'fmtdate' )
