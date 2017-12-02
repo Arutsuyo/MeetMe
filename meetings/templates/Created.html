@@ -39,6 +39,7 @@
 	<br />
 	<output hidden id="event_hash_msg">Event Hash: </output>
 	<output hidden id="event_hash" name="event_hash"></output>
+	<p id="mailLink">Finalize to make a link!</p>
 	<button hidden class="join_button" id="join_button" type="submit">Join This Event</button>
 	<br />
 	<a hidden id="route_create" type="button" href="Create" class="btn btn-lg btn-success">Create</a>
@@ -50,6 +51,7 @@
 		var FINALIZE_JSON = SCRIPT_ROOT + "/_finalize";
 		var TOKEN_JSON = SCRIPT_ROOT + "/_token";
 		var TOKEN_URL = SCRIPT_ROOT + "/Token";
+		var INVITE_JSON = SCRIPT_ROOT + "/_invite";
 
 		// Stackoverflow hash
 		String.prototype.hashCode = function () {
@@ -64,6 +66,7 @@
 		};
 
 		$(document).ready(function () {
+			
 			$('.finalize').click(function () {
 				document.getElementById("join_button").disabled = true;
 				document.getElementById("finalize").disabled = true;
@@ -79,6 +82,8 @@
 				var hash = event_name + begin_date + begin_time + end_date + end_time;
 				hash = hash.hashCode();
 				console.log("hash for event: " + hash);
+
+				document.getElementById("mailLink").innerHTML = "Getting invite link.....";
 
 				$.getJSON(FINALIZE_JSON, {
 					event_name: event_name,
@@ -102,6 +107,10 @@
 							$('#done').removeAttr('hidden');
 							document.getElementById("creating").hidden = true;
 							document.getElementById("event_hash").innerHTML = hash;
+							
+							document.getElementById("mailLink").innerHTML = data.result.inv;
+
+
 						}
 						else {
 							$('#join_button').removeAttr('disabled');
@@ -110,6 +119,9 @@
 							$('#exists').removeAttr('hidden');
 							$('#route_create').removeAttr('disabled');
 							$('#route_create').removeAttr('hidden');
+
+							document.getElementById("mailLink").innerHTML = data.result.inv;
+
 						}
 					}// End Return
 				);// End JSON

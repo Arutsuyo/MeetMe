@@ -127,11 +127,20 @@ def finalize_event():
 
     # Send the event to the MongoManager to create it
     ret = MM.makeNewEvent(event_name, begin_date, begin_time, end_date, end_time, event_hash)
+    # Create the invite link
+    inv = '<a href="mailto:name1@mail.com,name2@mail.com?subject=Your%20invited%20to%20Join%20an%20Event!&amp;body=Please%20visit%20the%20MeetMe!%20website%20and%20enter%20your%20invite%20token%20to%20join%20the%20event.%0AEvent%3A%20'
+    inv += urllib.parse.quote(event_name)
+    inv += '%0AToken%3A%20'
+    inv += urllib.parse.quote(event_hash)
+    inv += '">Invite guests</a>'
+    dprint("Invite link:", inv)
     result = {"status" : False,
-              "event_hash": event_hash}
+              "event_hash": event_hash,
+              "inv" : inv}
     if ret:
         app.logger.debug("Event Created")
         result["status"] = True
+
     else:
         app.logger.debug("ERROR: Event Creation Failed!!!")
     return flask.jsonify(result=result)
@@ -333,13 +342,13 @@ def submitEvents():
 @app.route("/_invite")
 def getInvite():
     # Create the invite link
-    str = '<a href="mailto:name1@mail.com,name2@mail.com?subject=Your%20invited%20to%20Join%20an%20Event!&amp;body=Please%20visit%20the%20MeetMe!%20website%20and%20enter%20your%20invite%20token%20to%20join%20the%20event.%0AEvent%3A%20'
-    str += urllib.parse.quote(flask.session["event_name"])
-    str += '%0AToken%3A%20'
-    str += urllib.parse.quote(flask.session["event_hash"])
-    str += '">Invite guests</a>'
-    dprint("Invite link:", str)
-    res = {"inv" : str}
+    inv = '<a href="mailto:name1@mail.com,name2@mail.com?subject=Your%20invited%20to%20Join%20an%20Event!&amp;body=Please%20visit%20the%20MeetMe!%20website%20and%20enter%20your%20invite%20token%20to%20join%20the%20event.%0AEvent%3A%20'
+    inv += urllib.parse.quote(flask.session["event_name"])
+    inv += '%0AToken%3A%20'
+    inv += urllib.parse.quote(flask.session["event_hash"])
+    inv += '">Invite guests</a>'
+    dprint("Invite link:", inv)
+    res = {"inv" : inv}
     return flask.jsonify(result=res)
 
 
